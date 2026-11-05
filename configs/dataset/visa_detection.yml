@@ -1,0 +1,63 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+
+num_classes: 2
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: D:/Proto-RTDETR/ProtoRTDETRv2_VisA_Submission/datasets/visa/VisA/data/VisA_20220922
+    ann_file: D:/Proto-RTDETR/ProtoRTDETRv2_VisA_Submission/datasets/visa/annotations/train.json
+    transforms:
+      type: Compose
+      ops:
+        - {type: Mosaic, size: 640}
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+      policy:
+        name: stop_epoch
+        epoch: 71
+        ops: ['RandomPhotometricDistort', 'RandomZoomOut', 'RandomIoUCrop']
+  collate_fn:
+    type: BatchImageCollateFunction
+    # ⚠️ 8GB 显存必须关闭多尺度，只保留 640！
+    scales: [640] 
+    stop_epoch: 71
+  shuffle: True
+  # ⚠️ 8GB 显存极限 batch_size
+  total_batch_size: 2 
+  # ⚠️ Windows 下必须设为 0，防止卡死
+  num_workers: 0      
+  drop_last: True
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: D:/Proto-RTDETR/ProtoRTDETRv2_VisA_Submission/datasets/visa/VisA/data/VisA_20220922
+    ann_file: D:/Proto-RTDETR/ProtoRTDETRv2_VisA_Submission/datasets/visa/annotations/test.json
+    transforms:
+      type: Compose
+      ops:
+        - {type: Resize, size: [640, 640]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+  collate_fn:
+    type: BatchImageCollateFunction
+  shuffle: False
+  total_batch_size: 2
+  num_workers: 0
+  drop_last: False

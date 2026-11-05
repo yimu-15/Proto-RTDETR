@@ -1,0 +1,125 @@
+# τ 温度敏感性消融 (轻量化): temperature 0.07 -> 0.02
+# 基底: proto_rtdetrv2_r50vd_visa_abl2_lw1.yml (最终配置: lw=1.0, 无 Mosaic, best mAP 0.890 @ E10)
+# 改动: ① temperature 0.07 -> 0.02 ② 轻量化 6 epoch, milestones [11,14] -> [4,5] ③ 新 output_dir
+# 目的: 验证 ProtoContrastHead 对温度超参的敏感性（论文 Table 2）
+
+__include__: [
+  'rtdetrv2/include/rtdetrv2_r50vd.yml',
+  'rtdetrv2/include/optimizer.yml',
+  'dataset/visa_detection.yml',
+  'runtime.yml',
+]
+
+output_dir: ./output/proto_rtdetrv2_r50vd_visa_abl2_lw1_tau002
+
+use_amp: False
+use_ema: True
+task: detection
+
+model: RTDETR
+criterion: RTDETRCriterionv2
+postprocessor: RTDETRPostProcessor
+
+use_focal_loss: True
+eval_spatial_size: [640, 640]
+
+num_classes: 2
+remap_mscoco_category: False
+
+tuning: D:/Proto-RTDETR/weights/rtdetrv2_r50vd_6x_coco_ema.pth
+
+epoches: 6
+
+RTDETR:
+  backbone: PResNet
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2
+  proto_head: ProtoContrastHead
+
+PResNet:
+  depth: 50
+  variant: d
+  freeze_at: 0
+  return_idx: [1, 2, 3]
+  num_stages: 4
+  freeze_norm: True
+  pretrained: False
+
+HybridEncoder:
+  in_channels: [512, 1024, 2048]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+
+RTDETRTransformerv2:
+  num_classes: 2
+  feat_channels: [256, 256, 256]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  num_levels: 3
+  num_layers: 6
+  num_queries: 300
+  num_denoising: 30
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+
+ProtoContrastHead:
+  feat_dim: 256
+  num_classes: 2
+  proj_dim: 128
+  # 🔬 τ 消融(轻量化): 0.07 -> 0.02
+  temperature: 0.02
+  loss_weight: 1.0
+
+RTDETRPostProcessor:
+  num_top_queries: 300
+
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2}
+  losses: ['vfl', 'boxes']
+  alpha: 0.75
+  gamma: 2.0
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.001
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [4, 5]
+  gamma: 0.1
+
+train_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+      policy:
+        name: stop_epoch
+        epoch: 71
+        ops: ['RandomPhotometricDistort', 'RandomZoomOut', 'RandomIoUCrop']

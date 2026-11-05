@@ -1,0 +1,122 @@
+# Proto-RTDETRv2 R50vd for VisA Medium-Shot Defect Detection (Fixed & Optimized)
+
+__include__: [
+  'rtdetrv2/include/rtdetrv2_r50vd.yml',
+  'rtdetrv2/include/optimizer.yml',
+  'dataset/visa_detection.yml',
+  'runtime.yml',
+]
+
+output_dir: ./output/proto_rtdetrv2_r50vd_visa_v2
+
+# ✅ v3: 关闭 AMP（fp16）。decoder 中 torch.inf 哨兵 anchor 在 fp16 下会经
+#    log(1/0)/0×inf 产生单 batch NaN，导致 matcher 断言崩溃（epoch5 step≈3600）。
+#    fp32 下该路径全部有界，训练稳定；模型小（~2.3GB 显存），fp32 无压力。
+use_amp: False
+# ✅ v2: 启用 EMA（此前 runtime.yml 的 use_ema: False 覆盖了 optimizer.yml），
+#    验证/测试统一使用 EMA 参数，指标更稳定、mAP 更高
+use_ema: True
+task: detection
+
+model: RTDETR
+criterion: RTDETRCriterionv2
+postprocessor: RTDETRPostProcessor
+
+use_focal_loss: True
+eval_spatial_size: [640, 640]
+
+num_classes: 2
+remap_mscoco_category: False
+
+# ✅ 使用 tuning 加载 COCO 预训练权重（自动跳过形状不匹配的输出层）
+# 注意：键名必须是 'tuning'，不是 'pretrain_weights'（后者是死键名）
+tuning: D:/Proto-RTDETR/weights/rtdetrv2_r50vd_6x_coco_ema.pth
+
+# ✅ v2: 16 epochs + 两段式 LR 衰减（此前 MultiStepLR milestones: [1000] 在 12 epoch 内永不触发 → LR 全程不变）
+epoches: 16
+
+# ✅ v2: 降低 denoising 数量，dn 损失此前占总损失的绝大部分（~7.8），淹没真正的检测信号
+RTDETR:
+  backbone: PResNet
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2
+  proto_head: ProtoContrastHead
+
+PResNet:
+  # ✅ 关键修复3: depth改为50以匹配R50权重和文件名
+  depth: 50
+  variant: d
+  freeze_at: 0
+  return_idx: [1, 2, 3]
+  num_stages: 4
+  freeze_norm: True
+  # ✅ 关键修复4: 关闭自动下载，强制使用本地pretrain_weights
+  pretrained: False
+
+HybridEncoder:
+  # ✅ 关键修复5: R50vd(variant=d)的通道数是[512, 1024, 2048]，不是R18的[128,256,512]
+  in_channels: [512, 1024, 2048]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+
+RTDETRTransformerv2:
+  num_classes: 2
+  feat_channels: [256, 256, 256]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  num_levels: 3
+  num_layers: 6
+  num_queries: 300
+  num_denoising: 30
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+
+ProtoContrastHead:
+  feat_dim: 256
+  num_classes: 2
+  proj_dim: 128
+  temperature: 0.07
+  loss_weight: 0.5
+
+RTDETRPostProcessor:
+  num_top_queries: 300
+
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2}
+  losses: ['vfl', 'boxes']
+  alpha: 0.75
+  gamma: 2.0
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+
+# ✅ v2: 过拟合缓解 —— weight_decay 0.0001 → 0.001（10 倍），其余继承 optimizer.yml
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.001
+
+# ✅ v2: 有效的 LR 衰减（MultiStepLR 按 epoch 步进），16 epoch 时于第 11、14 epoch 末衰减
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [11, 14]
+  gamma: 0.1
+
+# ⚠️  gradient accumulation is NOT implemented in this codebase.
+# The 'accumulation_steps' config key is never read by any source file.
+# Effective batch_size is always total_batch_size=2 (no accumulation).
+# NOTE: Remove this line if not needed.

@@ -1,0 +1,121 @@
+# Ablation Round 2 (新基线=无 Mosaic): w/o ProtoContrastHead
+# 新基线: proto_rtdetrv2_r50vd_visa_abl_no_mosaic.yml (best mAP 0.857 @ E15)
+# 改动: 移除 ProtoContrastHead（proto_head: null），其余与无 Mosaic 新基线完全一致
+# 目的: 在高基线（0.857）下重新验证 ProtoContrastHead 的贡献（最终论文 Table 2）
+
+__include__: [
+  'rtdetrv2/include/rtdetrv2_r50vd.yml',
+  'rtdetrv2/include/optimizer.yml',
+  'dataset/visa_detection.yml',
+  'runtime.yml',
+]
+
+output_dir: ./output/proto_rtdetrv2_r50vd_visa_abl2_wo_proto
+
+# 与 baseline 一致: 关闭 AMP（fp16 下 decoder 的 torch.inf 哨兵 anchor 会产生单 batch NaN）
+use_amp: False
+use_ema: True
+task: detection
+
+model: RTDETR
+criterion: RTDETRCriterionv2
+postprocessor: RTDETRPostProcessor
+
+use_focal_loss: True
+eval_spatial_size: [640, 640]
+
+num_classes: 2
+remap_mscoco_category: False
+
+# 与 baseline 一致: COCO 预训练权重（自动跳过形状不匹配的输出层）
+tuning: D:/Proto-RTDETR/weights/rtdetrv2_r50vd_6x_coco_ema.pth
+
+epoches: 16
+
+RTDETR:
+  backbone: PResNet
+  encoder: HybridEncoder
+  decoder: RTDETRTransformerv2
+  # 🔬 消融(第2轮): 移除 ProtoContrastHead（workspace.py 中 _k is None -> 跳过注入）
+  proto_head: null
+
+PResNet:
+  depth: 50
+  variant: d
+  freeze_at: 0
+  return_idx: [1, 2, 3]
+  num_stages: 4
+  freeze_norm: True
+  pretrained: False
+
+HybridEncoder:
+  in_channels: [512, 1024, 2048]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+
+RTDETRTransformerv2:
+  num_classes: 2
+  feat_channels: [256, 256, 256]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  num_levels: 3
+  num_layers: 6
+  num_queries: 300
+  num_denoising: 30
+  label_noise_ratio: 0.5
+  box_noise_scale: 1.0
+  eval_idx: -1
+  num_points: [4, 4, 4]
+  cross_attn_method: default
+  query_select_method: default
+
+RTDETRPostProcessor:
+  num_top_queries: 300
+
+RTDETRCriterionv2:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2}
+  losses: ['vfl', 'boxes']
+  alpha: 0.75
+  gamma: 2.0
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    alpha: 0.25
+    gamma: 2.0
+
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.001
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [11, 14]
+  gamma: 0.1
+
+# 与无 Mosaic 新基线一致: 训练 transforms 移除 Mosaic
+train_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+      policy:
+        name: stop_epoch
+        epoch: 71
+        ops: ['RandomPhotometricDistort', 'RandomZoomOut', 'RandomIoUCrop']

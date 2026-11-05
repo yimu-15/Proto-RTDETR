@@ -1,0 +1,40 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ---- Data / weights / checkpoints (NOT distributed) ----
+weights/
+datasets/
+models/
+output/
+*.pth
+*.pt
+*.zip
+*.onnx
+
+# ---- Experiment artifacts / logs ----
+*.log
+runs/
+tb_logs/
+
+# ---- IDE / OS ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Secrets / env ----
+.env
+*.key
+*.pem
+credentials*
+*_token*

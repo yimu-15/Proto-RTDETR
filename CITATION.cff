@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the Proto-RTDETR paper."
+type: software
+title: "Proto-RTDETR: Proto-Contrast Learning for Industrial Defect Detection with RT-DETRv2"
+authors:
+  # TODO: replace with the confirmed author list (name, affiliation, ORCID) before merge.
+  - name: "Proto-RTDETR Authors"
+repository-code: "https://github.com/yimu-15/Proto-RTDETR"
+license: Apache-2.0
+preferred-citation:
+  type: article
+  title: "Proto-Contrast Learning for Industrial Defect Detection with RT-DETRv2"
+  authors:
+    - name: "Proto-RTDETR Authors"
+  status: submitted
+  # NOTE: DOI, venue (conference/journal), and year are intentionally left blank
+  # because they are not yet confirmed (paper is under review). Do not fabricate.
